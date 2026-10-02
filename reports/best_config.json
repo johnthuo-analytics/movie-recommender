@@ -1,0 +1,10 @@
+{
+  "knn_signal": "raw",
+  "svd_signal": "raw",
+  "weights": {
+    "knn": 0.0,
+    "svd": 0.9,
+    "content": 0.1,
+    "popularity": 0.0
+  }
+}
