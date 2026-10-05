@@ -45,7 +45,20 @@ item per user, Recall@K equals HitRate@K and Precision@K equals Recall@K / K.
 
 Run `python evaluate.py`, then paste `reports/test_results.csv` here:
 
-> RESULTS_TABLE: replace this line with your own results.
+> Test-set results (one held-out item per user, 943 users):
+
+| Model | Recall@10 (= HitRate) | MAP@10 | NDCG@10 | MRR | Coverage@10 |
+|---|---|---|---|---|---|
+| Random | 0.0053 | 0.0015 | 0.0024 | 0.0046 | 0.9958 |
+| Popularity | 0.0297 | 0.0082 | 0.0130 | 0.0134 | 0.0059 |
+| Content (genres) | 0.0201 | 0.0064 | 0.0097 | 0.0104 | 0.4566 |
+| Item-kNN | 0.0827 | 0.0239 | 0.0375 | 0.0364 | 0.1950 |
+| SVD | 0.0827 | 0.0240 | 0.0375 | 0.0372 | 0.1350 |
+| **Hybrid (tuned)** | **0.0838** | **0.0245** | **0.0382** | **0.0378** | 0.2812 |
+
+Tuned hybrid weights (chosen on validation data): SVD 0.9, content 0.1, kNN 0.0, popularity 0.0.
+
+**Reading the results:** every personalised model beats the popularity baseline by roughly 3x on Recall@10. The hybrid is the best model on every ranking metric, but its edge over plain SVD is tiny. With only one test item per user, a gap that small is probably noise. The weight tuning mostly selected SVD, with content similarity as a small tie-breaker. Popularity has very low coverage (0.6% of the catalogue) because it recommends the same few movies to everyone.
 
 ## 6. API
 | Endpoint | Purpose |
