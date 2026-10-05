@@ -43,9 +43,7 @@ coverage, popularity bias and diversity. Model variants and hybrid weights are
 chosen on validation; the test item is scored once. Because there is one relevant
 item per user, Recall@K equals HitRate@K and Precision@K equals Recall@K / K.
 
-Run `python evaluate.py`, then paste `reports/test_results.csv` here:
-
-> Test-set results (one held-out item per user, 943 users):
+Results below come from `python evaluate.py` (full numbers in `reports/test_results.csv`). Test set: one held-out item per eligible user, i.e. users with at least 5 ratings.
 
 | Model | Recall@10 (= HitRate) | MAP@10 | NDCG@10 | MRR | Coverage@10 |
 |---|---|---|---|---|---|
