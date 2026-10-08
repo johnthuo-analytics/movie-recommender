@@ -1,0 +1,12 @@
+{
+  "editor.formatOnSave": true,
+  "[python]": { "editor.defaultFormatter": "charliermarsh.ruff" },
+  "editor.codeActionsOnSave": {
+    "source.fixAll.ruff": "explicit",
+    "source.organizeImports.ruff": "explicit"
+  },
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["tests"],
+  "editor.rulers": [100],
+  "files.eol": "\n"
+}
