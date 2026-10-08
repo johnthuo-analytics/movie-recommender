@@ -1,8 +1,40 @@
-# Tech-Africa Movie Recommendation System
+<div align="center">
 
-A hybrid movie recommender built on **MovieLens 100K**: popularity baseline,
-content-based similarity, item-item collaborative filtering, SVD, a tuned hybrid
-ranker, cold-start handling, offline evaluation and a FastAPI inference service.
+# 🎬 Movie Recommender
+
+**A hybrid recommendation engine on MovieLens 100K, served by FastAPI and Docker.**
+It recommends about **3× more relevant movies than a popularity baseline** and explains every pick.
+
+[![CI](https://github.com/johnthuo-analytics/movie-recommender/actions/workflows/ci.yml/badge.svg)](https://github.com/johnthuo-analytics/movie-recommender/actions)
+![Python](https://img.shields.io/badge/python-3.11-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688)
+![Docker](https://img.shields.io/badge/docker-ready-2496ED)
+![Tests](https://img.shields.io/badge/tests-43%20passing-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
+
+<!-- Replace with your own screenshot: save it as docs/demo.png -->
+<img src="docs/demo.png" alt="Demo screenshot" width="820">
+
+</div>
+
+## Quick start
+
+```bash
+pip install -r requirements.txt
+python evaluate.py      # compare models, tune weights (downloads the data)
+python train.py         # train on all data, save the artifact
+uvicorn api:app         # open http://127.0.0.1:8000
+```
+
+## Highlights
+
+- **Honest evaluation:** chronological leave-last-out with separate validation and test items; nothing is tuned on the test set.
+- **Four signals blended:** item-kNN, SVD, genre content and popularity, with weights chosen on validation data.
+- **Explainable:** each recommendation returns per-component scores, shown in the demo as "Why".
+- **Cold start:** new users get popularity boosted by their chosen genres.
+- **Production habits:** training separate from serving, 43 tests, ruff, GitHub Actions CI, Docker.
+
+![Model comparison](reports/model_comparison.png)
 
 ## 1. Problem
 Given a user's rating history, suggest movies they have not seen yet and are
@@ -61,12 +93,14 @@ Tuned hybrid weights (chosen on validation data): SVD 0.9, content 0.1, kNN 0.0,
 ## 6. API
 | Endpoint | Purpose |
 |---|---|
-| `GET /health` | service and model status |
+| `GET /` | interactive demo page |
+| `GET /genres` | valid genre names |
+| `GET /health` | service, version and model status |
 | `GET /recommendations/user/{user_id}?k=10&preferred_genres=Drama` | personalised (hybrid), or cold start for unknown users |
 | `GET /recommendations/movie/{movie_id}?k=10&mode=content\|collaborative` | similar movies; 404 if unknown |
 | `GET /recommendations/popular?k=10&preferred_genres=Comedy` | popularity ranking |
 
-Interactive docs: `http://localhost:8000/docs`.
+Interactive demo: `http://localhost:8000/` · API docs: `http://localhost:8000/docs`.
 
 ## 7. Run locally
 ```bash
@@ -76,7 +110,7 @@ pip install -r requirements.txt
 pytest -q                        # run the tests
 python evaluate.py               # compare models, tune weights, write reports/
 python train.py                  # train on all data, save artifacts/
-uvicorn api:app --reload         # serve on http://127.0.0.1:8000
+uvicorn api:app --reload         # demo at http://127.0.0.1:8000  (docs at /docs)
 ```
 Docker (after `python train.py`):
 ```bash
