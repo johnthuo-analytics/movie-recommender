@@ -12,7 +12,6 @@ It recommends about **3× more relevant movies than a popularity baseline** and 
 ![Tests](https://img.shields.io/badge/tests-43%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-<!-- Replace with your own screenshot: save it as docs/demo.png -->
 <img src="docs/demo.png" alt="Demo screenshot" width="820">
 
 </div>
