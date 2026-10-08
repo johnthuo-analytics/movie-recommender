@@ -59,3 +59,8 @@ def test_demo_page_and_genres(client):
     page = client.get("/")
     assert page.status_code == 200 and "Movie Recommender" in page.text
     assert "Drama" in client.get("/genres").json()["genres"]
+
+
+def test_docs_page_is_styled(client):
+    page = client.get("/docs")
+    assert page.status_code == 200 and "swagger-ui" in page.text and "7c5cff" in page.text
