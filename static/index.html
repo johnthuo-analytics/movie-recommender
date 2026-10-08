@@ -1,0 +1,66 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Movie Recommender · Tech-Africa</title>
+<style>
+:root{--bg:#0f1220;--card:#181c30;--ink:#eef0f8;--mut:#8f96b8;--acc:#7c5cff;--acc2:#22d3ee;--line:#262b47}
+@media(prefers-color-scheme:light){:root{--bg:#f5f6fb;--card:#fff;--ink:#14172b;--mut:#5b6283;--line:#e3e6f2}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,Segoe UI,sans-serif}
+header{padding:48px 20px 28px;text-align:center;background:radial-gradient(60% 120% at 50% 0,#7c5cff33,transparent)}
+h1{margin:0;font-size:clamp(28px,5vw,44px);letter-spacing:-.02em}
+h1 span{background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;color:transparent}
+header p{color:var(--mut);margin:8px auto 0;max-width:560px}
+main{max-width:980px;margin:0 auto;padding:0 20px 60px}
+.tabs{display:flex;gap:8px;justify-content:center;margin:18px 0}
+.tab{border:1px solid var(--line);background:var(--card);color:var(--mut);padding:9px 16px;border-radius:999px;cursor:pointer;font:inherit}
+.tab.on{background:linear-gradient(90deg,var(--acc),var(--acc2));color:#fff;border-color:transparent}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;display:none}
+.panel.on{display:block}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+input,select,button.go{font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+button.go{background:var(--acc);border:0;color:#fff;cursor:pointer;font-weight:600}
+label.chip{border:1px solid var(--line);border-radius:999px;padding:4px 11px;font-size:13px;color:var(--mut);cursor:pointer}
+label.chip:has(input:checked){background:var(--acc);color:#fff;border-color:var(--acc)}
+label.chip input{display:none}
+#out{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:22px}
+.item{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+.rank{color:var(--acc2);font-weight:700;font-size:13px}.title{font-weight:600;margin:2px 0 8px}
+.g{display:inline-block;font-size:11px;padding:2px 8px;margin:0 4px 4px 0;border-radius:999px;background:var(--bg);color:var(--mut);border:1px solid var(--line)}
+.bar{height:6px;background:var(--bg);border-radius:9px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2))}
+.why{font-size:12px;color:var(--mut);margin-top:8px}
+#msg{text-align:center;color:var(--mut);margin-top:22px}
+footer{text-align:center;color:var(--mut);font-size:13px;padding:20px}footer a{color:var(--acc2)}
+</style></head><body>
+<header><h1>🎬 Movie <span>Recommender</span></h1>
+<p>Hybrid engine: item-kNN + SVD + genre content + popularity, tuned on a chronological validation split.</p></header>
+<main>
+<div class="tabs"><button class="tab on" data-p="u">For a user</button><button class="tab" data-p="m">Similar movies</button><button class="tab" data-p="c">New user</button></div>
+<section class="panel on" id="u"><div class="row"><input id="uid" type="number" min="1" value="1" aria-label="User ID"><input id="uk" type="number" min="1" max="50" value="10" aria-label="How many"><button class="go" id="gu">Recommend</button></div></section>
+<section class="panel" id="m"><div class="row"><input id="mid" type="number" min="1" value="50" aria-label="Movie ID"><select id="mode"><option value="content">By genre</option><option value="collaborative">By viewers' taste</option></select><button class="go" id="gm">Find similar</button></div></section>
+<section class="panel" id="c"><p style="margin-top:0;color:var(--mut)">No history yet? Pick genres you like.</p><div class="row" id="chips"></div><div class="row" style="margin-top:14px"><button class="go" id="gc">Show picks</button></div></section>
+<div id="msg">Choose a tab and press the button.</div><div id="out"></div>
+</main>
+<footer>Served by FastAPI · <a href="/docs">API docs</a> · MovieLens 100K</footer>
+<script>
+const $=s=>document.querySelector(s),out=$('#out'),msg=$('#msg');
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tab,.panel').forEach(e=>e.classList.remove('on'));t.classList.add('on');$('#'+t.dataset.p).classList.add('on')});
+fetch('/genres').then(r=>r.json()).then(d=>{$('#chips').innerHTML=d.genres.filter(g=>g!=='unknown').map(g=>`<label class="chip"><input type="checkbox" value="${g}">${g.replace('_',' ')}</label>`).join('')}).catch(()=>{});
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function render(d){
+  const items=d.items||[];out.innerHTML='';
+  msg.textContent=items.length?`Strategy: ${d.strategy.replace('_',' ')}`:'No results.';
+  const max=Math.max(...items.map(i=>i.score),1e-9);
+  items.forEach((m,i)=>{
+    const why=m.components?'Why: '+Object.entries(m.components).filter(([,v])=>v>0).map(([k,v])=>`${k} ${(v*100).toFixed(0)}%`).join(' · '):'';
+    out.insertAdjacentHTML('beforeend',`<div class="item"><div class="rank">#${i+1}</div><div class="title">${esc(m.title)}</div>${m.genres.map(g=>`<span class="g">${esc(g.replace('_',' '))}</span>`).join('')}<div class="bar"><i style="width:${Math.max(4,m.score/max*100)}%"></i></div><div class="why">${esc(why)}</div></div>`);
+  });
+}
+async function go(url){
+  msg.textContent='Loading…';out.innerHTML='';
+  try{const r=await fetch(url);if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||r.statusText)}render(await r.json())}
+  catch(e){msg.textContent='⚠ '+e.message}
+}
+$('#gu').onclick=()=>go(`/recommendations/user/${$('#uid').value}?k=${$('#uk').value}`);
+$('#gm').onclick=()=>go(`/recommendations/movie/${$('#mid').value}?k=10&mode=${$('#mode').value}`);
+$('#gc').onclick=()=>{const g=[...document.querySelectorAll('#chips input:checked')].map(i=>'preferred_genres='+i.value).join('&');go('/recommendations/popular?k=10'+(g?'&'+g:''))};
+</script></body></html>

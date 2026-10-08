@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY recommender/ recommender/
 COPY api.py .
+COPY static/ static/
 # The trained artifact is created by `python train.py` BEFORE building the image.
 COPY artifacts/recommender.joblib artifacts/recommender.joblib
 
