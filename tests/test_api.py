@@ -12,7 +12,8 @@ def client(model):
 
 def test_health(client):
     body = client.get("/health").json()
-    assert body == {"status": "ok", "model_loaded": True}
+    assert body["status"] == "ok" and body["model_loaded"] is True
+    assert body["version"]
 
 
 def test_user_recommendations(client):
@@ -52,3 +53,9 @@ def test_503_when_model_missing(tmp_path):
     with TestClient(create_app(model_path=tmp_path / "missing.joblib")) as c:
         assert c.get("/health").json()["model_loaded"] is False
         assert c.get("/recommendations/user/1").status_code == 503
+
+
+def test_demo_page_and_genres(client):
+    page = client.get("/")
+    assert page.status_code == 200 and "Movie Recommender" in page.text
+    assert "Drama" in client.get("/genres").json()["genres"]

@@ -8,10 +8,24 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from recommender.config import ARTIFACT_PATH, DEFAULT_K, MAX_K
+from recommender.config import ARTIFACT_PATH, DEFAULT_K, GENRE_COLS, MAX_K
 from recommender.inference import Recommender, UnknownMovieError
+
+VERSION = "2.1.0"
+INDEX_HTML = Path(__file__).parent / "static" / "index.html"
+DESCRIPTION = (
+    "Hybrid movie recommender on **MovieLens 100K**: item-kNN + SVD + genre content + "
+    "popularity, tuned on a chronological validation split.\n\n"
+    "Open the [interactive demo](/) or try the endpoints below."
+)
+TAGS = [
+    {"name": "recommendations", "description": "Personalised, similar-movie and popular lists."},
+    {"name": "system", "description": "Service status."},
+]
 
 
 class Recommendation(BaseModel):
@@ -42,7 +56,24 @@ def create_app(model: Recommender | None = None, model_path: str | Path | None =
             app.state.model = Recommender.load(path)
         yield
 
-    app = FastAPI(title="Movie Recommendation API", version="2.0.0", lifespan=lifespan)
+    app = FastAPI(
+        title="Movie Recommendation API",
+        version=VERSION,
+        description=DESCRIPTION,
+        openapi_tags=TAGS,
+        lifespan=lifespan,
+    )
+    app.add_middleware(
+        CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"]
+    )
+
+    @app.get("/", include_in_schema=False)
+    def demo():
+        return FileResponse(INDEX_HTML)
+
+    @app.get("/genres", tags=["system"])
+    def genres():
+        return {"genres": list(GENRE_COLS)}
 
     def get_model(request: Request) -> Recommender:
         loaded = request.app.state.model
@@ -50,11 +81,17 @@ def create_app(model: Recommender | None = None, model_path: str | Path | None =
             raise HTTPException(503, "Model artifact not loaded. Run `python train.py` first.")
         return loaded
 
-    @app.get("/health")
+    @app.get("/health", tags=["system"])
     def health(request: Request):
-        return {"status": "ok", "model_loaded": request.app.state.model is not None}
+        return {
+            "status": "ok",
+            "version": VERSION,
+            "model_loaded": request.app.state.model is not None,
+        }
 
-    @app.get("/recommendations/popular", response_model=RecommendationResponse)
+    @app.get(
+        "/recommendations/popular", response_model=RecommendationResponse, tags=["recommendations"]
+    )
     def popular(
         request: Request,
         k: int = Query(DEFAULT_K, ge=1, le=MAX_K),
@@ -67,7 +104,11 @@ def create_app(model: Recommender | None = None, model_path: str | Path | None =
             raise HTTPException(400, str(exc)) from exc
         return RecommendationResponse(strategy="popular", items=_records(frame))
 
-    @app.get("/recommendations/user/{user_id}", response_model=RecommendationResponse)
+    @app.get(
+        "/recommendations/user/{user_id}",
+        response_model=RecommendationResponse,
+        tags=["recommendations"],
+    )
     def for_user(
         request: Request,
         user_id: int,
@@ -82,7 +123,11 @@ def create_app(model: Recommender | None = None, model_path: str | Path | None =
         strategy = "hybrid" if rec.has_user(user_id) else "cold_start"
         return RecommendationResponse(strategy=strategy, items=_records(frame))
 
-    @app.get("/recommendations/movie/{movie_id}", response_model=RecommendationResponse)
+    @app.get(
+        "/recommendations/movie/{movie_id}",
+        response_model=RecommendationResponse,
+        tags=["recommendations"],
+    )
     def for_movie(
         request: Request,
         movie_id: int,
