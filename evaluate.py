@@ -123,8 +123,8 @@ def main() -> None:
     ).T
     print(val_table[["Recall@10", "MAP@10", "NDCG@10", "MRR"]].round(4))
 
-    best_knn = max(KNN_SIGNALS, key=lambda s: val_table.loc[f"knn_{s}", SELECT_METRIC])
-    best_svd = max(SVD_SIGNALS, key=lambda s: val_table.loc[f"svd_{s}", SELECT_METRIC])
+    best_knn = max(KNN_SIGNALS, key=lambda s: float(val_table.loc[f"knn_{s}", SELECT_METRIC]))
+    best_svd = max(SVD_SIGNALS, key=lambda s: float(val_table.loc[f"svd_{s}", SELECT_METRIC]))
     print(f"\nBest kNN signal: {best_knn} | best SVD signal: {best_svd}")
 
     # ---------------------------------------- 2. tune hybrid weights (val)

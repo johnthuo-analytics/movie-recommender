@@ -20,7 +20,7 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
 from recommender.config import ARTIFACT_PATH, DEFAULT_K, GENRE_COLS, MAX_K
-from recommender.inference import Recommender, UnknownMovieError
+from recommender.inference import Recommender, UnknownMovieError, normalise_genres
 
 logger = logging.getLogger("movie-recommender.api")
 
@@ -405,33 +405,17 @@ def _records(frame) -> list[Recommendation]:
 
 
 def _normalise_genres(preferred_genres: list[str] | None) -> list[str] | None:
-    """Validate requested genres (case-insensitive).
+    """Match requested genres to the catalogue (case-insensitive, `Sci-Fi` = `Sci_Fi`).
 
-    Raises a 400 listing the valid genres if any requested genre is unknown.
+    Reuses the recommender's own matching so the API and model always agree, and
+    turns an unknown genre into a 400 that lists the valid ones.
     """
     if not preferred_genres:
         return None
-
-    available = {str(genre).strip().lower(): str(genre).strip() for genre in GENRE_COLS}
-    cleaned: list[str] = []
-    unknown: list[str] = []
-
-    for genre in preferred_genres:
-        key = str(genre).strip().lower()
-        if key in available:
-            cleaned.append(available[key])
-        else:
-            unknown.append(str(genre))
-
-    if unknown:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Unknown genre(s): {', '.join(unknown)}. "
-                f"Valid genres: {', '.join(available.values())}."
-            ),
-        )
-    return cleaned or None
+    try:
+        return normalise_genres(preferred_genres) or None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def get_model(request: Request) -> Recommender:
@@ -699,7 +683,9 @@ def create_app(
         try:
             frame = recommender.similar_movies(movie_id=movie_id, k=k, mode=mode)
         except UnknownMovieError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            # KeyError.__str__ adds quotes, so read the message from args directly.
+            detail = str(exc.args[0]) if exc.args else f"Movie ID {movie_id} was not found."
+            raise HTTPException(status_code=404, detail=detail) from exc
 
         strategy = "similar_content" if mode == "content" else "similar_collaborative"
         return RecommendationResponse(strategy=strategy, items=_records(frame))
