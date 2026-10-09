@@ -22,15 +22,24 @@ BASE_DIR = Path(**file**).resolve().parent
 INDEX_HTML = BASE_DIR / "static" / "index.html"
 
 DESCRIPTION = """
-
 # 🎬 Movie Recommendation API
 
-A movie recommendation service built with **FastAPI** and trained on the
-**MovieLens 100K** dataset.
+**A hybrid movie recommendation service built with FastAPI and trained on the MovieLens 100K dataset. It combines item-kNN, SVD, content similarity and popularity signals.**
 
-The system combines collaborative filtering, SVD, item similarity,
-movie genres, and popularity signals to generate recommendations.
+[![CI](https://github.com/johnthuo-analytics/movie-recommender/actions/workflows/ci.yml/badge.svg)](https://github.com/johnthuo-analytics/movie-recommender/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.11-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688)
+![Docker](https://img.shields.io/badge/docker-ready-2496ED)
+![Tests](https://img.shields.io/badge/tests-44%20passing-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
+## 🌐 Live Demo
+
+**https://movie-recommender-03sk.onrender.com** · [API docs](https://movie-recommender-03sk.onrender.com/docs)
+
+> Hosted on a free plan: after 15 minutes idle it sleeps, and the first load can take about 50 seconds.
+
+![Movie Recommendation API docs](docs/api-docs.png)
 ## Features
 
 * 🎯 Personalised recommendations for users
@@ -131,6 +140,13 @@ Built by **John Thuo**.
 
 **License:** MIT
 """
+   ## 🌐 Live Demo
+
+   **https://movie-recommender-03sk.onrender.com** · [API docs](https://movie-recommender-03sk.onrender.com/docs)
+
+   > Hosted on a free plan: after 15 minutes idle it sleeps, and the first load can take about 50 seconds.
+
+   ![Movie Recommendation API docs](docs/api-docs.png)
 
 DOCS_CSS = """
 
