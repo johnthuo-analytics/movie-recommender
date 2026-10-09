@@ -1,887 +1,766 @@
-# 🎬 Movie Recommendation System
+"""FastAPI service for the Movie Recommendation System."""
 
-**A production-oriented hybrid movie recommendation system combining item-kNN, SVD, content-based similarity, and popularity signals — served through FastAPI and Docker.**
+from **future** import annotations
 
-> **Result:** The tuned hybrid achieves **8.38% Recall@10**, compared with **2.97% for the popularity baseline**, while keeping the recommendation pipeline explainable and suitable for API serving.
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Literal
 
-[![CI](https://github.com/johnthuo-analytics/movie-recommender/actions/workflows/ci.yml/badge.svg)](https://github.com/johnthuo-analytics/movie-recommender/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/python-3.11-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-009688)
-![Docker](https://img.shields.io/badge/docker-ready-2496ED)
-![Tests](https://img.shields.io/badge/tests-43%20passing-brightgreen)
-![License](https://img.shields.io/badge/license-MIT-lightgrey)
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
+from pydantic import BaseModel
 
----
+from recommender.config import ARTIFACT_PATH, DEFAULT_K, GENRE_COLS, MAX_K
+from recommender.exceptions import UnknownMovieError
+from recommender.inference import Recommender
 
-## 🚀 Quick Start
+VERSION = "2.1.1"
 
-```bash
-git clone https://github.com/johnthuo-analytics/movie-recommender.git
-cd movie-recommender
+BASE_DIR = Path(**file**).resolve().parent
+INDEX_HTML = BASE_DIR / "static" / "index.html"
 
-python -m venv .venv
-```
+DESCRIPTION = """
 
-Activate the environment.
+# 🎬 Movie Recommendation API
 
-### Windows
+A movie recommendation service built with **FastAPI** and trained on the
+**MovieLens 100K** dataset.
 
-```bash
-.venv\Scripts\activate
-```
+The system combines collaborative filtering, SVD, item similarity,
+movie genres, and popularity signals to generate recommendations.
 
-### macOS / Linux
+## Features
 
-```bash
-source .venv/bin/activate
-```
+* 🎯 Personalised recommendations for users
+* 🎬 Similar movie recommendations
+* 🔥 Popular movie recommendations
+* 🎭 Genre-based preferences
+* 🩺 API and model health checks
+* 🌐 Interactive movie recommendation demo
 
-Install dependencies:
+## Recommendation methods
 
-```bash
-pip install -r requirements.txt
-```
+**Collaborative filtering** uses user-movie interaction patterns to identify
+movies that may be relevant to users with similar preferences.
 
-Run the API:
+**SVD** uses matrix factorisation to learn relationships between users and
+movies.
 
-```bash
-uvicorn api:app --reload
-```
+**Item similarity** identifies movies with similar interaction patterns.
 
-Then open:
+**Content similarity** compares movies using their genres.
 
-```text
-http://127.0.0.1:8000/
-```
+**Popularity** provides recommendations when limited user history is available.
 
-Interactive API documentation:
+For known users, the system can combine multiple signals into a hybrid
+recommendation. Users without sufficient history can receive popular
+recommendations instead.
 
-```text
-http://127.0.0.1:8000/docs
-```
-
----
-
-## ✨ Highlights
-
-* Hybrid recommendation engine
-* Collaborative filtering with SVD / PureSVD
-* Item-item kNN with cosine similarity
-* Genre-based content similarity
-* Popularity baseline
-* Cold-start recommendation strategy
-* Chronological leave-last-out evaluation
-* Tunable hybrid ranking
-* FastAPI inference service
-* Docker-ready deployment
-* Automated tests with Pytest
-* Ruff code-quality checks
-* GitHub Actions CI
-* Saved model artifacts for inference
-* Training and serving separated for production-style deployment
-
----
-
-# 1. Problem
-
-Movie recommendation is fundamentally a **ranking problem**.
-
-Given a user's historical interactions, the system must rank movies that the user is most likely to appreciate.
-
-The project addresses two practical scenarios:
+## Endpoints
 
 ### Personalised recommendations
 
-For users with rating history, the system combines collaborative and content-based signals to produce ranked recommendations.
+`GET /recommendations/user/{user_id}`
 
-### Cold-start recommendations
-
-For users without sufficient interaction history, the system falls back to popularity-based recommendations, optionally filtered by preferred genres.
-
----
-
-# 2. Dataset
-
-The project uses the **MovieLens 100K dataset** from GroupLens.
-
-Dataset:
-
-[MovieLens 100K](https://grouplens.org/datasets/movielens/100k/)
-
-The dataset contains:
-
-* **100,000 ratings**
-* **943 users**
-* **1,682 movies**
-* Ratings from **1–5**
-* **19 movie genres**
-
-The dataset is small enough for experimentation while still providing a realistic recommendation-system workflow.
-
----
-
-# 3. System Architecture
-
-The project separates data preparation, model training, evaluation, and inference.
-
-```text
-                         ┌─────────────────────┐
-                         │   MovieLens 100K    │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │      data.py        │
-                         │  Load / validate    │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │   preprocessing.py  │
-                         │   Transform data    │
-                         └──────────┬──────────┘
-                                    │
-                    ┌───────────────┼────────────────┐
-                    │               │                │
-                    ▼               ▼                ▼
-             Content Model      kNN Model        SVD Model
-                    │               │                │
-                    └───────────────┼────────────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │     ranking.py      │
-                         │   Hybrid ranking    │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │      train.py       │
-                         │    Save artifact    │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │ recommender.joblib  │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │       api.py        │
-                         │      FastAPI        │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │      REST API       │
-                         └─────────────────────┘
-
-                         Evaluation pipeline
-                                    │
-                                    ▼
-                              evaluate.py
-                                    │
-                                    ▼
-                         reports/*.csv
-                         model_comparison.png
-                         best_config.json
-```
-
----
-
-# 4. Recommendation Approach
-
-The system combines multiple recommendation signals.
-
-## 4.1 Popularity Baseline
-
-A popularity model provides a simple baseline and a useful fallback for users with little or no history.
-
-The ranking incorporates rating information rather than simply sorting by raw rating count.
-
-This gives the project a benchmark against which more sophisticated models can be compared.
-
----
-
-## 4.2 Content-Based Similarity
-
-Movies are represented using their genre information.
-
-A movie's genre vector is compared with other movie vectors using similarity measures.
-
-This allows the system to answer questions such as:
-
-> "Users who like this type of movie may also like these movies."
-
-Content similarity is particularly useful when collaborative information is limited.
-
----
-
-## 4.3 Item-Item kNN
-
-The item-based collaborative filtering model identifies movies with similar user-rating patterns.
-
-The implementation uses:
-
-* Cosine similarity
-* Item-user interaction matrices
-* Neighbour selection
-* Similarity shrinkage
-
-The model can therefore recommend movies based on relationships learned from historical user behaviour.
-
----
-
-## 4.4 SVD / PureSVD
-
-The collaborative filtering component uses a matrix-factorisation approach.
-
-User-item interactions are represented in a latent-factor space.
-
-The model learns:
-
-```text
-User preferences
-       ↓
-Latent representation
-       ↓
-Movie representations
-       ↓
-Predicted preference
-       ↓
-Recommendation ranking
-```
-
-The serving pipeline also supports **fold-in**, allowing an existing user's interaction history to be represented without retraining the entire model.
-
----
-
-## 4.5 Hybrid Ranking
-
-The final recommendation score combines the available signals.
-
-The tuned configuration is:
-
-| Component  | Weight |
-| ---------- | -----: |
-| SVD        |   0.90 |
-| Content    |   0.10 |
-| Item-kNN   |   0.00 |
-| Popularity |   0.00 |
-
-The weights are applied after score normalization.
-
-This configuration reflects the evaluation results rather than forcing every model to contribute equally.
-
----
-
-# 5. Cold-Start Strategy
-
-A recommendation system needs a fallback for users with little or no history.
-
-The project handles this using popularity-based recommendations.
-
-Users can optionally provide preferred genres.
-
-Example:
-
-```text
-User → No rating history
-        ↓
-Preferred genre = Drama
-        ↓
-Popular Drama movies
-        ↓
-Top-K recommendations
-```
-
-This prevents the API from failing when personalised collaborative recommendations cannot be generated.
-
----
-
-# 6. Evaluation Methodology
-
-The evaluation uses a **chronological leave-last-out strategy**.
-
-Instead of randomly splitting user interactions, the system respects the order in which ratings occurred.
-
-For each eligible user:
-
-```text
-Earlier interactions
-        ↓
-Training history
-
-Second-latest interaction
-        ↓
-Validation
-
-Latest interaction
-        ↓
-Test
-```
-
-This more closely represents the real-world recommendation scenario:
-
-> Use the user's past behaviour to predict what they interact with next.
-
----
-
-# 7. Evaluation Metrics
-
-The project evaluates recommendation quality using several ranking metrics.
-
-### Recall@K
-
-Measures whether the relevant item appears somewhere in the top-K recommendations.
-
-### Precision@K
-
-Measures the proportion of recommended items that are relevant.
-
-### MAP@K
-
-Measures ranking quality while considering the position of relevant recommendations.
-
-### NDCG@K
-
-Rewards relevant items appearing higher in the recommendation list.
-
-### MRR
-
-Measures how early the first relevant recommendation appears.
-
-### Coverage@K
-
-Measures how much of the available movie catalogue is recommended.
-
-Using multiple metrics provides a more complete view than relying on a single score.
-
----
-
-# 8. Model Results
-
-| Model      |  Recall@10 | Precision@10 |     MAP@10 |    NDCG@10 | Coverage@10 |
-| ---------- | ---------: | -----------: | ---------: | ---------: | ----------: |
-| Random     |     0.0053 |       0.0015 |     0.0024 |     0.0046 |      0.9958 |
-| Popularity |     0.0297 |       0.0082 |     0.0130 |     0.0134 |      0.0059 |
-| Content    |     0.0201 |       0.0064 |     0.0097 |     0.0104 |      0.4566 |
-| Item-kNN   |     0.0827 |       0.0239 |     0.0375 |     0.0364 |      0.1950 |
-| SVD        |     0.0827 |       0.0240 |     0.0375 |     0.0372 |      0.1350 |
-| **Hybrid** | **0.0838** |   **0.0245** | **0.0382** | **0.0378** |  **0.2812** |
-
----
-
-## 8.1 Model Comparison
-
-![Model comparison](reports/model_comparison.png)
-
----
-
-# 9. Results Interpretation
-
-Several observations stand out.
-
-### Hybrid vs Popularity
-
-The tuned hybrid achieves:
-
-```text
-Hybrid Recall@10:      0.0838
-Popularity Recall@10: 0.0297
-```
-
-This represents a substantial improvement over the simple popularity baseline.
-
-### kNN and SVD
-
-Both collaborative approaches achieve:
-
-```text
-Item-kNN: 0.0827
-SVD:      0.0827
-```
-
-This shows that collaborative signals provide most of the predictive strength in this dataset.
-
-### Hybrid improvement
-
-The hybrid reaches:
-
-```text
-0.0838 Recall@10
-```
-
-compared with:
-
-```text
-0.0827 Recall@10
-```
-
-for SVD.
-
-The improvement is therefore relatively small.
-
-This is intentionally reported rather than overstated. Because the evaluation uses one held-out item per eligible user, small differences can potentially reflect evaluation noise.
-
-The tuned weights also explain why SVD dominates the final hybrid:
-
-```text
-SVD        = 90%
-Content    = 10%
-kNN        = 0%
-Popularity = 0%
-```
-
----
-
-# 10. Recommendation Coverage
-
-Coverage provides an important counterpoint to accuracy metrics.
-
-The models produce the following Coverage@10:
-
-```text
-Popularity   0.0059
-Content      0.4566
-Item-kNN     0.1950
-SVD          0.1350
-Hybrid       0.2812
-```
-
-The popularity model has very low catalogue coverage because it repeatedly recommends a small group of popular movies.
-
-The content model provides substantially higher coverage.
-
-The hybrid improves coverage relative to SVD while maintaining the strongest Recall@10 among the evaluated models.
-
-This demonstrates why recommendation systems should not be evaluated using accuracy alone.
-
----
-
-# 11. FastAPI
-
-The trained model is served through FastAPI.
-
-The API loads a previously trained artifact and **does not train the model during application startup**.
-
-## API Endpoints
-
-| Method | Endpoint                            | Purpose                                            |
-| ------ | ----------------------------------- | -------------------------------------------------- |
-| GET    | `/`                                 | Interactive recommendation demo                    |
-| GET    | `/genres`                           | Returns valid movie genres                         |
-| GET    | `/health`                           | Returns service, version, and model status         |
-| GET    | `/recommendations/user/{user_id}`   | Returns personalised or cold-start recommendations |
-| GET    | `/recommendations/movie/{movie_id}` | Returns similar movies                             |
-| GET    | `/recommendations/popular`          | Returns popularity-based recommendations           |
-
----
-
-## Query Parameters
-
-### User recommendations
-
-```text
-/recommendations/user/{user_id}?k=10&preferred_genres=Drama
-```
-
-Parameters:
-
-* `user_id` — MovieLens user ID
-* `k` — number of recommendations
-* `preferred_genres` — optional genre preference
-
----
+Returns recommendations for a MovieLens user.
 
 ### Similar movies
 
-```text
-/recommendations/movie/{movie_id}?k=10&mode=content
+`GET /recommendations/movie/{movie_id}`
+
+Returns movies similar to a selected movie.
+
+Available modes:
+
+* `content` — genre-based similarity
+* `collaborative` — interaction-based similarity
+
+### Popular movies
+
+`GET /recommendations/popular`
+
+Returns popular movies with optional genre preferences.
+
+### Genres
+
+`GET /genres`
+
+Returns the genres available to the recommendation system.
+
+### Health
+
+`GET /health`
+
+Returns the current API and model status.
+
+## Interactive demo
+
+**[Open the Movie Recommender](/)**
+
+## Example response
+
+```json
+{
+  "strategy": "hybrid",
+  "items": [
+    {
+      "movie_id": 475,
+      "title": "Trainspotting (1996)",
+      "genres": ["Drama"],
+      "score": 0.989,
+      "components": {
+        "content": 0.89,
+        "knn": 0.0,
+        "popularity": 0.0,
+        "svd": 1.0
+      }
+    }
+  ]
+}
 ```
 
-Supported modes:
+## Technology
 
-```text
-content
-collaborative
+**Python • FastAPI • Pandas • NumPy • Scikit-learn • Joblib • MovieLens 100K**
+
+Built by **John Thuo**.
+
+**GitHub:** https://github.com/johnthuo-analytics
+
+**License:** MIT
+"""
+
+DOCS_CSS = """
+
+<style>
+body {
+    background: #f5f7fb !important;
+}
+
+.swagger-ui {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 18px 40px;
+    font-family:
+        Inter,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        Roboto,
+        Helvetica,
+        Arial,
+        sans-serif;
+}
+
+.swagger-ui .topbar {
+    background: linear-gradient(
+        135deg,
+        #111827 0%,
+        #1f2937 55%,
+        #374151 100%
+    );
+    margin: 0 -18px 28px;
+    padding: 18px 28px;
+    border-radius: 0 0 14px 14px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.swagger-ui .topbar .download-url-wrapper {
+    display: none;
+}
+
+.swagger-ui .topbar-wrapper {
+    max-width: 1180px;
+    margin: 0 auto;
+}
+
+.swagger-ui .topbar-wrapper img {
+    display: none;
+}
+
+.swagger-ui .topbar-wrapper::before {
+    content: "🎬 Movie Recommendation API";
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}
+
+.swagger-ui .information-container {
+    margin: 0 0 26px;
+}
+
+.swagger-ui .info {
+    background: #ffffff;
+    padding: 28px 32px;
+    border-radius: 16px;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
+}
+
+.swagger-ui .info .title {
+    color: #111827;
+    font-size: 32px;
+    font-weight: 750;
+    margin-bottom: 12px;
+}
+
+.swagger-ui .info .title small {
+    background: #eef2ff;
+    color: #4338ca;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.swagger-ui .info p,
+.swagger-ui .info li {
+    color: #4b5563;
+    line-height: 1.7;
+}
+
+.swagger-ui .info h1,
+.swagger-ui .info h2,
+.swagger-ui .info h3 {
+    color: #111827;
+}
+
+.swagger-ui .info blockquote {
+    border-left: 4px solid #6366f1;
+    background: #f8fafc;
+    padding: 10px 16px;
+    margin: 16px 0;
+    border-radius: 0 8px 8px 0;
+}
+
+.swagger-ui .markdown h1 {
+    font-size: 27px;
+    color: #111827;
+}
+
+.swagger-ui .markdown h2 {
+    font-size: 21px;
+    color: #1f2937;
+    margin-top: 26px;
+}
+
+.swagger-ui .markdown h3 {
+    font-size: 17px;
+    color: #374151;
+    margin-top: 20px;
+}
+
+.swagger-ui .markdown p,
+.swagger-ui .markdown li {
+    color: #4b5563;
+    line-height: 1.65;
+}
+
+.swagger-ui .markdown code {
+    background: #f1f5f9;
+    color: #4338ca;
+    padding: 2px 6px;
+    border-radius: 5px;
+}
+
+.swagger-ui .markdown pre {
+    background: #111827;
+    border-radius: 10px;
+    padding: 16px;
+    overflow-x: auto;
+}
+
+.swagger-ui .markdown pre code {
+    background: transparent;
+    color: #e5e7eb;
+}
+
+.swagger-ui .opblock-tag {
+    color: #111827;
+    font-size: 20px;
+    font-weight: 700;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 16px 8px;
+}
+
+.swagger-ui .opblock {
+    border-radius: 12px !important;
+    border-width: 1px !important;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+    overflow: hidden;
+    margin: 0 0 14px;
+}
+
+.swagger-ui .opblock:hover {
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.10);
+}
+
+.swagger-ui .opblock-summary {
+    padding: 12px 14px;
+}
+
+.swagger-ui .opblock-summary-description {
+    color: #374151 !important;
+    font-weight: 600;
+}
+
+.swagger-ui .opblock-summary-method {
+    border-radius: 7px;
+    font-weight: 800;
+    min-width: 74px;
+}
+
+.swagger-ui .btn.execute {
+    background: #4f46e5 !important;
+    border-color: #4f46e5 !important;
+    border-radius: 7px;
+    font-weight: 700;
+}
+
+.swagger-ui .btn.execute:hover {
+    background: #4338ca !important;
+    border-color: #4338ca !important;
+}
+
+.swagger-ui .try-out__btn {
+    border-radius: 7px;
+    font-weight: 700;
+}
+
+.swagger-ui .responses-inner {
+    background: #ffffff;
+    border-radius: 8px;
+}
+
+.swagger-ui .response-col_status {
+    font-weight: 700;
+}
+
+.swagger-ui table thead tr th {
+    background: #f8fafc;
+    color: #374151;
+}
+
+.swagger-ui table tbody tr td {
+    color: #4b5563;
+}
+
+.swagger-ui section.models {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+}
+
+.swagger-ui section.models h4 {
+    color: #111827;
+}
+
+.swagger-ui .auth-container {
+    border-radius: 10px;
+}
+
+.swagger-ui a {
+    color: #4f46e5;
+}
+
+.swagger-ui a:hover {
+    color: #3730a3;
+}
+
+.swagger-ui .scheme-container {
+    background: #ffffff;
+    border-radius: 12px;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+}
+
+.swagger-ui::after {
+    content: "Movie Recommendation API • Built by John Thuo";
+    display: block;
+    text-align: center;
+    color: #9ca3af;
+    font-size: 12px;
+    margin: 34px 0 10px;
+}
+</style>
+
+"""
+
+TAGS = [
+{
+"name": "Recommendations",
+"description": "Movie recommendation and similarity endpoints.",
+},
+{
+"name": "Discovery",
+"description": "Movie catalogue and genre information.",
+},
+{
+"name": "System",
+"description": "API and model status endpoints.",
+},
+]
+
+class Recommendation(BaseModel):
+"""A recommended movie."""
+
+```
+movie_id: int
+title: str
+genres: list[str]
+score: float
+components: dict[str, float] | None = None
 ```
 
-Examples:
+class RecommendationResponse(BaseModel):
+"""Recommendation response."""
 
-```text
-/recommendations/movie/50?k=10&mode=content
+```
+strategy: Literal[
+    "hybrid",
+    "cold_start",
+    "similar_content",
+    "similar_collaborative",
+    "popular",
+]
+
+items: list[Recommendation]
 ```
 
-```text
-/recommendations/movie/50?k=10&mode=collaborative
+def _records(frame) -> list[Recommendation]:
+"""Convert recommendation records into API objects."""
+
+```
+return [
+    Recommendation(**row)
+    for row in frame.to_dict(orient="records")
+]
 ```
 
----
+def _normalise_genres(
+preferred_genres: list[str] | None,
+) -> list[str] | None:
+"""Validate and normalise requested genres."""
 
-### Popular recommendations
+```
+if not preferred_genres:
+    return None
 
-```text
-/recommendations/popular?k=10&preferred_genres=Comedy
+available = {
+    str(genre).strip().lower(): str(genre).strip()
+    for genre in GENRE_COLS
+}
+
+cleaned: list[str] = []
+
+for genre in preferred_genres:
+    key = str(genre).strip().lower()
+
+    if key in available:
+        cleaned.append(available[key])
+
+return cleaned or None
 ```
 
----
+def create_app() -> FastAPI:
+"""Create the FastAPI application."""
 
-# 12. Explore the API
+```
+model_path = Path(
+    os.getenv(
+        "MODEL_PATH",
+        str(ARTIFACT_PATH),
+    )
+)
 
-Start the server:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.recommender = Recommender.load(model_path)
+    yield
+    app.state.recommender = None
 
-```bash
-uvicorn api:app --reload
+app = FastAPI(
+    title="🎬 Movie Recommendation API",
+    description=DESCRIPTION,
+    version=VERSION,
+    openapi_version="3.1.0",
+    docs_url=None,
+    redoc_url=None,
+    openapi_tags=TAGS,
+    contact={
+        "name": "John Thuo",
+        "url": "https://github.com/johnthuo-analytics",
+    },
+    license_info={
+        "name": "MIT License",
+    },
+    swagger_ui_parameters={
+        "docExpansion": "list",
+        "defaultModelsExpandDepth": 1,
+        "defaultModelExpandDepth": 2,
+        "displayRequestDuration": True,
+        "filter": True,
+        "tryItOutEnabled": True,
+        "persistAuthorization": True,
+        "syntaxHighlight.theme": "arta",
+    },
+    lifespan=lifespan,
+)
+
+cors_origins = os.getenv("CORS_ORIGINS", "*")
+
+if cors_origins.strip() == "*":
+    allowed_origins = ["*"]
+else:
+    allowed_origins = [
+        origin.strip()
+        for origin in cors_origins.split(",")
+        if origin.strip()
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get(
+    "/docs",
+    include_in_schema=False,
+)
+async def custom_swagger_ui():
+    response = get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title="Movie Recommendation API • Swagger",
+        swagger_js_url=(
+            "https://cdn.jsdelivr.net/npm/swagger-ui-dist/"
+            "swagger-ui-bundle.js"
+        ),
+        swagger_css_url=(
+            "https://cdn.jsdelivr.net/npm/swagger-ui-dist/"
+            "swagger-ui.css"
+        ),
+        swagger_favicon_url=(
+            "https://fastapi.tiangolo.com/img/favicon.png"
+        ),
+    )
+
+    html = response.body.decode("utf-8")
+
+    html = html.replace(
+        "</head>",
+        DOCS_CSS + "</head>",
+    )
+
+    response.body = html.encode("utf-8")
+    response.headers["content-length"] = str(len(response.body))
+
+    return response
+
+@app.get(
+    "/",
+    include_in_schema=False,
+)
+async def home():
+    from fastapi.responses import FileResponse
+
+    if not INDEX_HTML.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Interactive demo is not available.",
+        )
+
+    return FileResponse(INDEX_HTML)
+
+def get_model(request: Request) -> Recommender:
+    recommender = getattr(
+        request.app.state,
+        "recommender",
+        None,
+    )
+
+    if recommender is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Recommendation model is not ready.",
+        )
+
+    return recommender
+
+@app.get(
+    "/health",
+    tags=["System"],
+    summary="Check API and model status",
+    description="Returns the current API and model readiness status.",
+)
+async def health(request: Request):
+    recommender = getattr(
+        request.app.state,
+        "recommender",
+        None,
+    )
+
+    return {
+        "status": "ok" if recommender is not None else "starting",
+        "service": "movie-recommendation-api",
+        "version": VERSION,
+        "model_loaded": recommender is not None,
+    }
+
+@app.get(
+    "/genres",
+    tags=["Discovery"],
+    summary="List available movie genres",
+    description="Returns the genres available to the recommendation system.",
+)
+async def genres():
+    return {
+        "count": len(GENRE_COLS),
+        "genres": list(GENRE_COLS),
+    }
+
+@app.get(
+    "/recommendations/popular",
+    response_model=RecommendationResponse,
+    tags=["Recommendations"],
+    summary="Get popular movie recommendations",
+    description="Returns popular movies with optional genre preferences.",
+)
+async def popular_recommendations(
+    request: Request,
+    k: int = Query(
+        default=DEFAULT_K,
+        ge=1,
+        le=MAX_K,
+        description="Number of movies to return.",
+    ),
+    preferred_genres: list[str] | None = Query(
+        default=None,
+        description="Optional preferred genres.",
+    ),
+):
+    recommender = get_model(request)
+
+    genres = _normalise_genres(preferred_genres)
+
+    frame = recommender.popular(
+        k=k,
+        preferred_genres=genres,
+    )
+
+    return RecommendationResponse(
+        strategy="popular",
+        items=_records(frame),
+    )
+
+@app.get(
+    "/recommendations/user/{user_id}",
+    response_model=RecommendationResponse,
+    tags=["Recommendations"],
+    summary="Get personalised recommendations",
+    description=(
+        "Returns personalised recommendations for a MovieLens user. "
+        "Unknown users receive cold-start recommendations."
+    ),
+)
+async def user_recommendations(
+    user_id: int,
+    request: Request,
+    k: int = Query(
+        default=DEFAULT_K,
+        ge=1,
+        le=MAX_K,
+        description="Number of movies to return.",
+    ),
+    preferred_genres: list[str] | None = Query(
+        default=None,
+        description="Optional preferred genres.",
+    ),
+):
+    recommender = get_model(request)
+
+    genres = _normalise_genres(preferred_genres)
+
+    if recommender.has_user(user_id):
+        frame = recommender.recommend_for_user(
+            user_id=user_id,
+            k=k,
+            preferred_genres=genres,
+        )
+
+        strategy = "hybrid"
+    else:
+        frame = recommender.popular(
+            k=k,
+            preferred_genres=genres,
+        )
+
+        strategy = "cold_start"
+
+    return RecommendationResponse(
+        strategy=strategy,
+        items=_records(frame),
+    )
+
+@app.get(
+    "/recommendations/movie/{movie_id}",
+    response_model=RecommendationResponse,
+    tags=["Recommendations"],
+    summary="Find similar movies",
+    description=(
+        "Returns movies similar to the selected movie using either "
+        "content or collaborative similarity."
+    ),
+)
+async def movie_recommendations(
+    movie_id: int,
+    request: Request,
+    k: int = Query(
+        default=DEFAULT_K,
+        ge=1,
+        le=MAX_K,
+        description="Number of similar movies to return.",
+    ),
+    mode: Literal[
+        "content",
+        "collaborative",
+    ] = Query(
+        default="content",
+        description="Similarity method.",
+    ),
+):
+    recommender = get_model(request)
+
+    try:
+        frame = recommender.similar_movies(
+            movie_id=movie_id,
+            k=k,
+            mode=mode,
+        )
+    except UnknownMovieError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+    strategy = (
+        "similar_content"
+        if mode == "content"
+        else "similar_collaborative"
+    )
+
+    return RecommendationResponse(
+        strategy=strategy,
+        items=_records(frame),
+    )
+
+return app
 ```
 
-Then explore:
-
-### Interactive demo
-
-```text
-http://127.0.0.1:8000/
-```
-
-### Swagger documentation
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-### Health check
-
-```text
-http://127.0.0.1:8000/health
-```
-
-The Swagger interface provides an interactive way to test all API endpoints.
-
----
-
-# 13. Local Development
-
-Create the environment:
-
-```bash
-python -m venv .venv
-```
-
-Activate it.
-
-### Windows
-
-```bash
-.venv\Scripts\activate
-```
-
-### macOS / Linux
-
-```bash
-source .venv/bin/activate
-```
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Run tests:
-
-```bash
-pytest
-```
-
-The current test suite contains:
-
-```text
-43 passing
-```
-
-Run evaluation:
-
-```bash
-python evaluate.py
-```
-
-Train the recommendation artifact:
-
-```bash
-python train.py
-```
-
-Start the API:
-
-```bash
-uvicorn api:app --reload
-```
-
----
-
-# 14. Docker
-
-Build the image:
-
-```bash
-docker build -t movie-recommender .
-```
-
-Run the container:
-
-```bash
-docker run -p 8000:8000 movie-recommender
-```
-
-The API is then available at:
-
-```text
-http://127.0.0.1:8000/
-```
-
-Swagger documentation:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
----
-
-# 15. Testing and Code Quality
-
-The project includes automated testing using **Pytest**.
-
-The test suite covers important components including:
-
-* Data processing
-* Recommendation logic
-* Ranking
-* API behaviour
-* Model interfaces
-* Cold-start behaviour
-
-Current status:
-
-```text
-43 tests passing
-```
-
-Code quality is supported by **Ruff**.
-
-GitHub Actions runs automated checks through CI.
-
-The goal is to keep model experimentation separate from reliable serving code.
-
----
-
-# 16. Project Structure
-
-```text
-movie-recommender/
-│
-├── .github/
-│   └── workflows/
-│       └── ci.yml
-│
-├── docs/
-│   └── demo.png
-│
-├── notebooks/
-│   └── exploratory_analysis.ipynb
-│
-├── recommender/
-│   ├── data.py
-│   ├── preprocessing.py
-│   ├── content_model.py
-│   ├── collaborative_model.py
-│   ├── ranking.py
-│   └── ...
-│
-├── reports/
-│   ├── model_comparison.png
-│   ├── *.csv
-│   └── best_config.json
-│
-├── tests/
-│   └── ...
-│
-├── api.py
-├── train.py
-├── evaluate.py
-├── Dockerfile
-├── requirements.txt
-├── pytest.ini
-├── ruff.toml
-└── README.md
-```
-
----
-
-# 17. Limitations
-
-The project has several limitations.
-
-### Dataset size
-
-MovieLens 100K is useful for demonstrating recommendation-system concepts but is relatively small compared with production datasets.
-
-### Sparse interactions
-
-Most users interact with only a small portion of the catalogue.
-
-### Limited metadata
-
-The content model primarily relies on movie genres.
-
-Additional information such as:
-
-* Actors
-* Directors
-* Plot descriptions
-* Keywords
-* Release year
-* User context
-
-could improve content-based recommendations.
-
-### Evaluation design
-
-The leave-last-out strategy uses one held-out item per user, meaning that small differences between models should not automatically be interpreted as statistically significant improvements.
-
-### Hybrid contribution
-
-Although the hybrid performs best on the selected metrics, the improvement over SVD is modest.
-
-This suggests that the next stage should focus on stronger feature engineering, evaluation robustness, and richer recommendation signals.
-
----
-
-# 18. What I Would Improve Next
-
-Several improvements would make the system stronger.
-
-### 1. Add richer movie metadata
-
-Integrate:
-
-* Movie descriptions
-* Actors
-* Directors
-* Keywords
-* Release year
-
-This would allow a more expressive content model.
-
-### 2. Improve hybrid optimisation
-
-Instead of manually tuning a small set of weights, experiment with:
-
-* Learning-to-rank
-* Logistic regression
-* Gradient boosting
-* Pairwise ranking models
-
-### 3. Improve evaluation robustness
-
-Run:
-
-* Multiple chronological splits
-* Multiple random seeds
-* Bootstrap confidence intervals
-* Per-user evaluation
-* Statistical significance testing
-
-### 4. Add explainability
-
-Return recommendation reasons such as:
-
-```text
-Recommended because you liked:
-
-Movie A
-Movie B
-Movie C
-```
-
-or:
-
-```text
-Recommended because it matches your preferred genres:
-
-Drama, Romance
-```
-
-### 5. Improve production deployment
-
-Potential next steps include:
-
-* Model versioning
-* Structured logging
-* Monitoring
-* API authentication
-* Request metrics
-* Cloud deployment
-* CI/CD deployment pipeline
-
----
-
-# 19. Key Takeaways
-
-This project demonstrates an end-to-end recommendation workflow:
-
-```text
-Raw data
-   ↓
-Data preparation
-   ↓
-Multiple recommendation models
-   ↓
-Evaluation
-   ↓
-Hyperparameter / weight tuning
-   ↓
-Saved model artifact
-   ↓
-FastAPI inference
-   ↓
-Docker deployment
-```
-
-The main lessons are:
-
-* Collaborative filtering provides the strongest predictive signal on this dataset.
-* SVD and item-kNN perform similarly.
-* The tuned hybrid achieves the best overall Recall@10.
-* Content-based recommendations improve catalogue coverage.
-* Popularity is useful as a simple baseline and cold-start fallback.
-* Evaluation methodology matters when interpreting small model differences.
-* Separating training from inference makes the application more production-oriented.
-
----
-
-# 20. Why This Project Matters
-
-The project goes beyond simply training a recommendation model.
-
-It demonstrates the complete path from:
-
-**data → modelling → evaluation → API → deployment**
-
-It combines machine learning with software engineering practices including:
-
-* Modular architecture
-* Reproducible training
-* Model persistence
-* Automated testing
-* Code quality checks
-* REST API development
-* Dockerisation
-* Continuous integration
-
-This makes the project representative of a practical machine-learning workflow rather than a standalone notebook experiment.
-
----
-
-## 📄 License
-
-This project is licensed under the **MIT License**.
+app = create_app()
