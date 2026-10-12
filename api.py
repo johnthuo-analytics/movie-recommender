@@ -650,9 +650,7 @@ def create_app(
         selected = _normalise_genres(preferred_genres)
 
         if recommender.has_user(user_id):
-            frame = recommender.recommend_for_user(
-                user_id=user_id, k=k, preferred_genres=selected
-            )
+            frame = recommender.recommend_for_user(user_id=user_id, k=k, preferred_genres=selected)
             strategy = "hybrid"
         else:
             frame = recommender.popular(k=k, preferred_genres=selected)
