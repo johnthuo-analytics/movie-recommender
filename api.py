@@ -555,7 +555,7 @@ def create_app(
     @app.get("/docs", include_in_schema=False)
     def custom_swagger_ui():
         response = get_swagger_ui_html(
-            openapi_url=app.openapi_url,
+            openapi_url=app.openapi_url or "/openapi.json",
             title="Movie Recommendation API \u2022 Swagger",
             swagger_js_url=SWAGGER_JS,
             swagger_css_url=SWAGGER_CSS,
@@ -565,7 +565,8 @@ def create_app(
             swagger_ui_parameters=app.swagger_ui_parameters,
         )
         html = (
-            response.body.decode("utf-8")
+            bytes(response.body)
+            .decode("utf-8")
             .replace("</head>", DOCS_CSS + "</head>", 1)
             .replace('<div id="swagger-ui">', DOCS_HERO + '<div id="swagger-ui">', 1)
         )
