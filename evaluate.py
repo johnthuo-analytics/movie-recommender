@@ -123,8 +123,9 @@ def main() -> None:
     ).T
     print(val_table[["Recall@10", "MAP@10", "NDCG@10", "MRR"]].round(4))
 
-    best_knn = max(KNN_SIGNALS, key=lambda s: float(val_table.loc[f"knn_{s}", SELECT_METRIC]))
-    best_svd = max(SVD_SIGNALS, key=lambda s: float(val_table.loc[f"svd_{s}", SELECT_METRIC]))
+    val_scores_by_variant = val_table[SELECT_METRIC].astype(float).to_dict()
+    best_knn = max(KNN_SIGNALS, key=lambda s: val_scores_by_variant[f"knn_{s}"])
+    best_svd = max(SVD_SIGNALS, key=lambda s: val_scores_by_variant[f"svd_{s}"])
     print(f"\nBest kNN signal: {best_knn} | best SVD signal: {best_svd}")
 
     # ---------------------------------------- 2. tune hybrid weights (val)
@@ -136,7 +137,8 @@ def main() -> None:
         "popularity": val_scores["popularity"],
     }
     normalized = normalize_components(components, seen_val)
-    best_weights, best_value = None, -1.0
+    best_weights: dict[str, float] | None = None
+    best_value = -1.0
     for weights in weight_grid(COMPONENTS, args.step):
         final = combine(normalized, weights, seen_val)
         value = ranking_metrics(rank_of_target(final, seen_val, target_val), ks=(10,))[
@@ -144,6 +146,8 @@ def main() -> None:
         ]
         if value > best_value:
             best_weights, best_value = weights, value
+    if best_weights is None:
+        raise RuntimeError("Weight grid was empty; check the --step value.")
     print(f"Best weights: {best_weights}  (validation {SELECT_METRIC} = {best_value:.4f})")
 
     config = {"knn_signal": best_knn, "svd_signal": best_svd, "weights": best_weights}
