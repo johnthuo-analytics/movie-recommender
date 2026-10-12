@@ -29,6 +29,23 @@ label.chip input{display:none}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2))}
 .why{font-size:12px;color:var(--mut);margin-top:8px}
 #msg{text-align:center;color:var(--mut);margin-top:22px}
+.item{cursor:pointer;transition:border-color .15s}
+.item:hover,.item:focus-visible{border-color:var(--acc);outline:none}
+.hint{font-size:12px;color:var(--acc2);margin-top:8px}
+dialog{width:min(640px,calc(100% - 24px));max-height:calc(100% - 24px);overflow:auto;padding:0;border:1px solid var(--line);border-radius:18px;background:var(--card);color:var(--ink)}
+dialog::backdrop{background:#000a}
+.dh{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:18px 18px 0}
+.dh h2{margin:0;font-size:20px}
+.x{border:0;background:var(--bg);color:var(--ink);width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:18px;flex:none}
+.db{display:flex;gap:16px;padding:14px 18px;flex-wrap:wrap}
+.poster{width:150px;max-width:100%;border-radius:12px;background:var(--bg);flex:none;align-self:flex-start}
+.info{flex:1;min-width:200px}
+.info p{margin:0 0 10px;font-size:14px;color:var(--ink)}
+.sub{font-size:13px;color:var(--mut)}
+.links{display:flex;gap:8px;flex-wrap:wrap;padding:0 18px 18px}
+.links a,.links button{font:inherit;font-size:14px;padding:9px 14px;border-radius:10px;text-decoration:none;cursor:pointer;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.links a.main{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+.note{padding:0 18px 16px;font-size:12px;color:var(--mut)}
 footer{text-align:center;color:var(--mut);font-size:13px;padding:20px}footer a{color:var(--acc2)}
 </style></head><body>
 <header><h1>🎬 Movie <span>Recommender</span></h1>
@@ -40,6 +57,9 @@ footer{text-align:center;color:var(--mut);font-size:13px;padding:20px}footer a{c
 <section class="panel" id="c"><p style="margin-top:0;color:var(--mut)">No history yet? Pick genres you like.</p><div class="row" id="chips"></div><div class="row" style="margin-top:14px"><button class="go" id="gc">Show picks</button></div></section>
 <div id="msg">Choose a tab and press the button.</div><div id="out"></div>
 </main>
+<dialog id="dlg" aria-labelledby="dt"><div class="dh"><h2 id="dt"></h2><button class="x" id="dx" aria-label="Close">&times;</button></div>
+<div class="db"><img class="poster" id="dp" alt="" hidden><div class="info"><div id="dg"></div><p id="dd" class="sub"></p></div></div>
+<div class="links" id="dl"></div><div class="note">Watch links open legal search pages (streaming, trailers). Movie details come from Wikipedia.</div></dialog>
 <footer>Served by FastAPI · <a href="/docs">API docs</a> · MovieLens 100K</footer>
 <script>
 const $=s=>document.querySelector(s),out=$('#out'),msg=$('#msg');
@@ -52,7 +72,7 @@ function render(d){
   const max=Math.max(...items.map(i=>i.score),1e-9);
   items.forEach((m,i)=>{
     const why=m.components?'Why: '+Object.entries(m.components).filter(([,v])=>v>0).map(([k,v])=>`${k} ${(v*100).toFixed(0)}%`).join(' · '):'';
-    out.insertAdjacentHTML('beforeend',`<div class="item"><div class="rank">#${i+1}</div><div class="title">${esc(m.title)}</div>${m.genres.map(g=>`<span class="g">${esc(g.replace('_',' '))}</span>`).join('')}<div class="bar"><i style="width:${Math.max(4,m.score/max*100)}%"></i></div><div class="why">${esc(why)}</div></div>`);
+    out.insertAdjacentHTML('beforeend',`<div class="item" tabindex="0" role="button" data-id="${m.movie_id}" data-title="${esc(m.title)}" data-genres="${esc(m.genres.join(','))}"><div class="rank">#${i+1}</div><div class="title">${esc(m.title)}</div>${m.genres.map(g=>`<span class="g">${esc(g.replace('_',' '))}</span>`).join('')}<div class="bar"><i style="width:${Math.max(4,m.score/max*100)}%"></i></div><div class="why">${esc(why)}</div><div class="hint">Tap for details and where to watch</div></div>`);
   });
 }
 async function go(url){
@@ -63,4 +83,46 @@ async function go(url){
 $('#gu').onclick=()=>go(`/recommendations/user/${$('#uid').value}?k=${$('#uk').value}`);
 $('#gm').onclick=()=>go(`/recommendations/movie/${$('#mid').value}?k=10&mode=${$('#mode').value}`);
 $('#gc').onclick=()=>{const g=[...document.querySelectorAll('#chips input:checked')].map(i=>'preferred_genres='+i.value).join('&');go('/recommendations/popular?k=10'+(g?'&'+g:''))};
+
+const dlg=$('#dlg'),cache=new Map();
+function parseTitle(t){
+  const year=(t.match(/\((\d{4})\)\s*$/)||[])[1]||'';
+  let n=t.replace(/\s*\(\d{4}\)\s*$/,'').replace(/\s*\([^)]*\)/g,'').trim();
+  const m=n.match(/^(.*), (The|A|An)$/);if(m)n=m[2]+' '+m[1];
+  return{name:n,year};
+}
+async function lookup(name,year){
+  const key=name+year;if(cache.has(key))return cache.get(key);
+  const q=new URLSearchParams({action:'query',generator:'search',gsrsearch:`${name} ${year} film`,gsrlimit:'1',prop:'extracts|pageimages|description',exintro:'1',explaintext:'1',exsentences:'4',piprop:'thumbnail',pithumbsize:'400',format:'json',origin:'*'});
+  let info=null;
+  try{
+    const r=await fetch('https://en.wikipedia.org/w/api.php?'+q);const j=await r.json();
+    const p=Object.values((j.query||{}).pages||{})[0];
+    if(p&&/film/i.test((p.description||'')+' '+(p.extract||'').slice(0,200)))info={title:p.title,text:p.extract,desc:p.description,img:p.thumbnail&&p.thumbnail.source};
+  }catch(e){}
+  cache.set(key,info);return info;
+}
+async function openMovie(card){
+  const {name,year}=parseTitle(card.dataset.title),full=encodeURIComponent(`${name} ${year}`.trim());
+  $('#dt').textContent=card.dataset.title;
+  $('#dg').innerHTML=card.dataset.genres.split(',').map(g=>`<span class="g">${esc(g.replace('_',' '))}</span>`).join('');
+  $('#dd').textContent='Loading details…';$('#dp').hidden=true;
+  $('#dl').innerHTML=`<a class="main" target="_blank" rel="noopener" href="https://www.justwatch.com/search?q=${full}">Where to watch</a>
+    <a target="_blank" rel="noopener" href="https://www.youtube.com/results?search_query=${full}+official+trailer">Trailer</a>
+    <a target="_blank" rel="noopener" href="https://www.imdb.com/find/?s=tt&q=${full}">IMDb</a>
+    <button id="more">More like this</button>`;
+  $('#more').onclick=()=>{dlg.close();document.querySelector('[data-p=m]').click();$('#mid').value=card.dataset.id;$('#gm').click()};
+  dlg.showModal();
+  const info=await lookup(name,year);
+  if(!dlg.open||$('#dt').textContent!==card.dataset.title)return;
+  if(info){
+    $('#dd').textContent=(info.desc?info.desc+'. ':'')+(info.text||'');
+    if(info.img){$('#dp').src=info.img;$('#dp').alt=info.title+' poster';$('#dp').hidden=false}
+    $('#dl').insertAdjacentHTML('beforeend',`<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/${encodeURIComponent(info.title.replace(/ /g,'_'))}">Wikipedia</a>`);
+  }else $('#dd').textContent='No profile found for this title. Use the links below to look it up.';
+}
+out.addEventListener('click',e=>{const c=e.target.closest('.item');if(c)openMovie(c)});
+out.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){const c=e.target.closest('.item');if(c){e.preventDefault();openMovie(c)}}});
+$('#dx').onclick=()=>dlg.close();
+dlg.addEventListener('click',e=>{if(e.target===dlg)dlg.close()});
 </script></body></html>

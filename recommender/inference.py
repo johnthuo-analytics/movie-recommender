@@ -36,6 +36,11 @@ from recommender.ranking import (
 class UnknownMovieError(KeyError):
     """Raised when a movie_id is not in the catalogue."""
 
+    def __str__(self) -> str:
+        # KeyError wraps its message in quotes; return it plainly so the API's
+        # 404 detail reads cleanly.
+        return str(self.args[0]) if self.args else "Unknown movie."
+
 
 def load_best_config(path: str | Path = BEST_CONFIG_PATH) -> dict:
     """Read the config written by evaluate.py, or return defaults."""
@@ -167,7 +172,7 @@ class Recommender:
     def similar_movies(self, movie_id: int, k: int = 10, mode: str = "content") -> pd.DataFrame:
         """Movies most similar to movie_id by 'content' (genres) or 'collaborative'."""
         if not self.has_movie(movie_id):
-            raise UnknownMovieError(int(movie_id))
+            raise UnknownMovieError(f"Unknown movie_id {int(movie_id)}")
         if mode not in ("content", "collaborative"):
             raise ValueError("mode must be 'content' or 'collaborative'")
         k = self._clip_k(k)

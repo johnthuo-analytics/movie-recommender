@@ -35,7 +35,9 @@ def test_movie_recommendations_and_404(client):
     ok = client.get("/recommendations/movie/1?k=4&mode=collaborative")
     assert ok.status_code == 200
     assert ok.json()["strategy"] == "similar_collaborative"
-    assert client.get("/recommendations/movie/99999").status_code == 404
+    missing = client.get("/recommendations/movie/99999")
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "Unknown movie_id 99999"
 
 
 def test_popular_with_genres_and_bad_genre(client):
